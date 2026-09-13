@@ -70,6 +70,36 @@ describe("VisionKit storage", () => {
     expect(loadVisionKitData(storage).calibration.screen).toEqual(calibration);
   });
 
+  it("loads complete camera calibration and rejects incomplete camera data", () => {
+    const validData = {
+      ...defaultData(),
+      calibration: {
+        screen: null,
+        distance: {
+          version: 1 as const,
+          mode: "camera" as const,
+          referenceDistanceCm: 50,
+          referenceFaceScale: 0.35,
+          calibratedAt: "2026-09-01T00:00:00Z",
+        },
+      },
+    };
+    saveVisionKitData(validData, storage);
+    expect(loadVisionKitData(storage).calibration.distance).toEqual(validData.calibration.distance);
+
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...validData,
+        calibration: {
+          screen: null,
+          distance: { version: 1, mode: "camera", calibratedAt: "2026-09-01T00:00:00Z" },
+        },
+      }),
+    );
+    expect(loadVisionKitData(storage)).toEqual(defaultData());
+  });
+
   it("appends results and caps history per test", () => {
     for (let index = 0; index <= MAX_RESULTS_PER_TEST; index += 1) {
       appendResult(result(String(index)), storage);

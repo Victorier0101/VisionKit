@@ -25,10 +25,17 @@ function isDistanceCalibration(value: unknown): value is DistanceCalibration {
     (calibration.mode === "manual" || calibration.mode === "camera") &&
     typeof calibration.calibratedAt === "string" &&
     Number.isFinite(Date.parse(calibration.calibratedAt)) &&
-    (calibration.mode !== "manual" ||
-      (typeof calibration.manualDistanceCm === "number" &&
-        Number.isFinite(calibration.manualDistanceCm) &&
-        calibration.manualDistanceCm > 0))
+    ((calibration.mode === "manual" &&
+      typeof calibration.manualDistanceCm === "number" &&
+      Number.isFinite(calibration.manualDistanceCm) &&
+      calibration.manualDistanceCm > 0) ||
+      (calibration.mode === "camera" &&
+        typeof calibration.referenceDistanceCm === "number" &&
+        Number.isFinite(calibration.referenceDistanceCm) &&
+        calibration.referenceDistanceCm > 0 &&
+        typeof calibration.referenceFaceScale === "number" &&
+        Number.isFinite(calibration.referenceFaceScale) &&
+        calibration.referenceFaceScale > 0))
   );
 }
 
