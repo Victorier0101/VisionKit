@@ -16,39 +16,78 @@ export interface FaceTracker {
 
 const MEASUREMENT_INTERVAL_MS = 100;
 const SMOOTHING_WINDOW = 5;
+const XNNPACK_INITIALIZATION_MESSAGE = "Created TensorFlow Lite XNNPACK delegate for CPU";
+
+export function isBenignMediaPipeConsoleMessage(args: readonly unknown[]): boolean {
+  return args.some(
+    (argument) => typeof argument === "string" && argument.includes(XNNPACK_INITIALIZATION_MESSAGE),
+  );
+}
+
+async function initializeFaceLandmarker(): Promise<FaceLandmarker> {
+  const originalConsoleError = console.error;
+
+  // MediaPipe's generated WASM loader binds informational stderr output to console.error.
+  // Bind it through this exact-message filter so Next.js does not present a harmless
+  // XNNPACK initialization notice as an application error.
+  console.error = (...args: unknown[]) => {
+    if (!isBenignMediaPipeConsoleMessage(args)) {
+      originalConsoleError(...args);
+    }
+  };
+
+  try {
+    const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+    const fileset = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
+    return await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: "/models/face_landmarker.task",
+        delegate: "CPU",
+      },
+      runningMode: "VIDEO",
+      numFaces: 2,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: false,
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+}
 
 export class MediaPipeFaceTracker implements FaceTracker {
   private landmarker: FaceLandmarker | null = null;
+  private initializationPromise: Promise<FaceLandmarker> | null = null;
   private animationFrameId: number | null = null;
   private lastMeasurementAt = 0;
   private lastVideoTime = -1;
   private recentScales: number[] = [];
   private running = false;
+  private runToken = 0;
 
   async start(video: HTMLVideoElement, listener: MeasurementListener): Promise<void> {
     this.stop();
     this.running = true;
+    const runToken = this.runToken;
 
     if (!this.landmarker) {
-      const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const fileset = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
-      this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-        baseOptions: {
-          modelAssetPath: "/models/face_landmarker.task",
-          delegate: "CPU",
-        },
-        runningMode: "VIDEO",
-        numFaces: 2,
-        minFaceDetectionConfidence: 0.5,
-        minFacePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false,
-      });
+      const initialization = this.initializationPromise ?? initializeFaceLandmarker();
+      this.initializationPromise = initialization;
+      try {
+        this.landmarker = await initialization;
+      } finally {
+        if (this.initializationPromise === initialization) {
+          this.initializationPromise = null;
+        }
+      }
     }
 
+    if (!this.running || runToken !== this.runToken) return;
+
     const measure = (timestamp: number) => {
-      if (!this.running || !this.landmarker) return;
+      if (!this.running || runToken !== this.runToken || !this.landmarker) return;
 
       if (
         video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
@@ -87,6 +126,7 @@ export class MediaPipeFaceTracker implements FaceTracker {
 
   stop(): void {
     this.running = false;
+    this.runToken += 1;
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;

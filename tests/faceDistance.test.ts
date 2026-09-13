@@ -6,6 +6,7 @@ import {
   median,
   type NormalizedPoint,
 } from "../lib/calibration/faceDistance";
+import { isBenignMediaPipeConsoleMessage } from "../lib/calibration/faceTracker";
 
 function landmarks(): NormalizedPoint[] {
   const points = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5 }));
@@ -43,5 +44,15 @@ describe("face-distance positioning", () => {
     expect(() => calculateFaceScale([])).toThrow();
     expect(() => estimateDistanceCm(50, 0.4, 0)).toThrow();
     expect(() => getPositionStatus(100, 0)).toThrow();
+  });
+});
+
+describe("MediaPipe console filtering", () => {
+  it("recognizes only the harmless XNNPACK initialization notice", () => {
+    expect(
+      isBenignMediaPipeConsoleMessage(["INFO: Created TensorFlow Lite XNNPACK delegate for CPU."]),
+    ).toBe(true);
+    expect(isBenignMediaPipeConsoleMessage(["Face landmarker failed to initialize"])).toBe(false);
+    expect(isBenignMediaPipeConsoleMessage([new Error("A real inference failure")])).toBe(false);
   });
 });
